@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  hookbrain:
+    # Build from this repo when deploying as a Git-based Portainer stack.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: hookbrain:cpu
+    container_name: hookbrain-stack
+
+    # Use 5051 to avoid conflict with your existing pgadmin:5050 mapping.
+    ports:
+      - "5051:5050"
+
+    environment:
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      HF_TOKEN: "${HF_TOKEN}"
+
+    volumes:
+      - /mnt/my-data-pool/collab-services/hookbrain/cache:/app/cache
+      - /mnt/my-data-pool/collab-services/hookbrain/data:/app/hookbrain/data
+
+    command: >
+      sh -c "python -c \"from huggingface_hub import login; import os; t=os.getenv('HF_TOKEN',''); login(token=t) if t else None\" &&
+             python hookbrain/app.py"
+
+    restart: unless-stopped
+
+    # Join your existing network so this stays separate but compatible.
+    networks:
+      - collab-services-network
+
+networks:
+  collab-services-network:
+    external: true
+    name: collab-services-network

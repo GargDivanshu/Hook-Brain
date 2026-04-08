@@ -153,6 +153,155 @@ Open http://127.0.0.1:5050
 
 ---
 
+## Run in a container (Docker / Portainer stack)
+
+### Option A: Plain Docker
+
+```bash
+docker build -t hookbrain:cpu .
+docker run --rm -it \
+  -p 5050:5050 \
+  -e ANTHROPIC_API_KEY="your-key" \
+  -e HF_TOKEN="your-hf-token" \
+  -v hookbrain_cache:/app/cache \
+  -v hookbrain_db:/app/hookbrain/data \
+  hookbrain:cpu
+```
+
+Then open: http://127.0.0.1:5050
+
+### Option B: Portainer stack (`stack.yml`)
+
+Use `deploy/hookbrain.stack.yml` as a **separate stack** from your existing services and set environment variables in Portainer:
+
+- `ANTHROPIC_API_KEY`
+- `LLM_PROVIDER` (`anthropic` or `gemini`)
+- `GEMINI_API_KEY` (required only if using `LLM_PROVIDER=gemini`)
+- `HF_TOKEN` (HuggingFace token with read access to gated models)
+- `HOOKBRAIN_TAG` (optional; defaults to `main`, set to branch name like `divanshu`)
+
+Notes:
+- This stack is CPU-only.
+- This stack deploys from Docker Hub image `gargdivanshu/hookbrain:${HOOKBRAIN_TAG}`.
+- The GitHub Actions workflow publishes tags on every push:
+  - pointer tag: `<branch>`
+  - retention tag: `<branch>-<shortsha>`
+- It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
+- First run can be slow due to model download; volumes keep cache/db across restarts.
+
+### Portainer registry form: what to fill
+
+If Portainer asks for DockerHub account details:
+
+- **Name**: any friendly label, e.g. `dockerhub-gargdivanshu`
+- **DockerHub username**: your Docker Hub username, e.g. `gargdivanshu`
+- **Password / token**: use a Docker Hub **Access Token** (recommended), not your account password
+
+After saving registry credentials, your stack image can be:
+`gargdivanshu/hookbrain:<branch>`
+
+### Env timing: runtime vs build-time
+
+For this repo, these are **runtime env vars** (set in Portainer stack / container env):
+
+- `HF_TOKEN`
+- `LLM_PROVIDER`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
+- `HOOKBRAIN_TAG` (stack tag selector)
+
+They are **not** Docker build args in the provided `Dockerfile`.
+
+### API provider support
+
+- Rewrites endpoint supports provider fallback via `LLM_PROVIDER`:
+  - `anthropic` (default): set `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`)
+  - `gemini`: set `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`)
+- If provider output is not valid JSON, API returns a clear error payload.
+
+---
+
+## Resource planning (local vs AWS EC2)
+
+This repository is configured to run on **CPU only**. You do **not** need a GPU for inference, and the project README/setup is optimized for Apple Silicon laptops.
+
+If your local machine is resource-constrained (low RAM / weak CPU), using EC2 can be more stable. Recommended starting points:
+
+- **t3.large / t3.xlarge** (budget testing): can run setup and light scans, but slower and may hit memory pressure during first-time downloads and preprocessing.
+- **m7i.xlarge or m6i.xlarge** (recommended baseline): better sustained CPU performance and memory headroom for model loading + WhisperX + Flask.
+- **c7i.xlarge** (CPU-speed prioritized): useful if you want faster scan turnaround and don't mind less RAM-per-vCPU than memory-oriented families.
+
+Practical baseline for smoother runs:
+- **4 vCPU / 16 GB RAM minimum**
+- **50+ GB disk** (models/cache, virtualenv, logs, temporary files)
+
+Notes:
+- First run downloads ~9 GB of models; this is the heaviest step.
+- This app currently processes **hook text** through TRIBE v2 (with internal TTS/transcription), not direct video-file upload in the Flask flow.
+- You can start on CPU EC2 first; move to larger CPU instances only if scan latency is too high for your workflow.
+
+### GPU precision (important)
+
+- For the current codebase and documented setup, **GPU is not required**.
+- Treat GPU as **optional acceleration only** if you later modify runtime patches and dependency behavior.
+- Out-of-the-box path in this repo is CPU-first, including explicit CPU patch steps.
+
+### Cheapest non-always-on deployment options
+
+If your goal is **not paying for an always-running server**, these are practical options:
+
+1. **AWS Batch on Fargate (CPU)** — best AWS-native pay-per-job option  
+   - Submit one scan job per request, container starts, runs inference, exits.  
+   - You pay compute only while the job is active.  
+   - Better fit than Lambda for long-running startup + model load.
+
+2. **Cloud Run Jobs (GCP) / Azure Container Apps Jobs** — similar pay-per-execution model  
+   - Good for containerized CPU workloads with occasional traffic.
+
+3. **Replicate-style serverless model endpoint**  
+   - Works for this use case if you package the full environment and cache strategy.  
+   - Expect cold starts and longer first-token latency due to large model initialization/download.
+
+4. **Spot EC2 + queue-triggered worker (intermittent)**  
+   - Very low cost if you can tolerate interruptions and occasional retries.  
+   - Not fully serverless, but cheaper than 24/7 on-demand EC2.
+
+### Why Lambda is usually a poor fit here
+
+- This workflow includes large dependencies, heavyweight model startup, and multi-minute inference windows.
+- Even if technically possible with container images and external storage, Lambda limits and cold starts make it operationally awkward and often not the cheapest in practice for this profile.
+
+### Practical recommendation
+
+- If you want lowest ongoing idle cost: start with **job-based containers** (AWS Batch on Fargate CPU).
+- If you want simplest setup right now: use **EC2 CPU instance** and stop/start it as needed.
+- If you want marketplace-style endpoint billing: use **Replicate-style deployment**, accepting slower cold starts.
+
+### Can I run this on older Xeon CPU machines?
+
+Yes—if you have enough RAM and disk, older multi-core Xeon systems can run this CPU pipeline.
+
+Example class that should work (with slower latency): Intel Xeon E5 v3 generation with 12 physical cores / 24 threads.
+
+Minimum practical checks before you commit to that machine:
+- **RAM:** 16 GB minimum, 32 GB preferred for smoother preprocessing/inference.
+- **Disk:** 50+ GB free (models + cache + venv + temp files).
+- **Python:** 3.12 environment available and isolated.
+- **Patience on first run:** initial model download/startup is heavy and can take significantly longer on older CPUs.
+
+If your machine passes those checks, you can run locally and avoid cloud costs entirely; expect slower per-scan turnaround versus modern CPUs.
+
+#### Go / no-go quick decision
+
+- **GO (run locally now):** your machine has **12c/24t-class CPU**, **>=16 GB RAM** (prefer 32 GB), and **>=50 GB free disk**.
+- **NO-GO (use cloud job runner):** RAM < 16 GB, disk < 50 GB free, or you need low latency.
+
+For Linux servers, add swap if it is currently zero to reduce crash risk during heavy first-run preprocessing/model loading.
+
+---
+
 ## CLI usage
 
 Score a hook without the web UI:

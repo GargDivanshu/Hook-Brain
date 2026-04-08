@@ -1,0 +1,44 @@
+name: Deploy HookBrain Docker Image
+
+on:
+  push:
+
+jobs:
+  deploy:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set tags
+        id: tags
+        run: |
+          IMAGE_NAME="gargdivanshu/hookbrain"
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+
+          POINTER_TAG="${IMAGE_NAME}:${BRANCH_NAME}"
+          RETENTION_TAG="${IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}"
+
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "pointer_tag=${POINTER_TAG}" >> "$GITHUB_OUTPUT"
+          echo "retention_tag=${RETENTION_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push Docker Image to Docker Hub
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t "${{ steps.tags.outputs.pointer_tag }}" \
+            -t "${{ steps.tags.outputs.retention_tag }}" \
+            .
+
+          docker push "${{ steps.tags.outputs.pointer_tag }}"
+          docker push "${{ steps.tags.outputs.retention_tag }}"

@@ -110,16 +110,11 @@ def api_scan_status(job_id):
 
 @app.route("/api/rewrites", methods=["POST"])
 def api_rewrites():
-    import anthropic
-
     body       = request.json or {}
     hook_text  = body.get("hook", "")
     brain_data = body.get("brain_data", {})
     scan_id    = body.get("scan_id")
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+    provider   = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
 
     prompt = f"""You are rewriting a short-form video hook. Your only job is to match a specific creator voice — spoken, immediate, never written.
 
@@ -200,14 +195,34 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
   {{"mechanic": "dropoff_prevention", "hook": "...", "why": "..."}}
 ]"""
 
-    client = anthropic.Anthropic(api_key=api_key)
-    msg    = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    if provider == "gemini":
+        import google.generativeai as genai
 
-    text = msg.content[0].text.strip()
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "GEMINI_API_KEY not set"}), 500
+
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        resp = model.generate_content(prompt)
+        text = (resp.text or "").strip()
+    else:
+        import anthropic
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+
+        model_name = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6")
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=model_name,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip()
+
     # Strip accidental markdown fences
     if "```" in text:
         parts = text.split("```")
@@ -216,7 +231,15 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
             text = text[4:]
     text = text.strip()
 
-    rewrite_list = json.loads(text)
+    try:
+        rewrite_list = json.loads(text)
+    except json.JSONDecodeError:
+        return jsonify({
+            "error": "LLM did not return valid JSON array",
+            "provider": provider,
+            "preview": text[:500],
+        }), 500
+
     return jsonify({"rewrites": rewrite_list})
 
 

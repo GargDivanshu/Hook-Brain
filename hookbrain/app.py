@@ -16,7 +16,8 @@ from db import get_history, get_scan, init_db, save_scan
 # ---------------------------------------------------------------------------
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT   = os.path.dirname(SCRIPT_DIR)
-VENV_PYTHON = os.path.join(REPO_ROOT, "venv", "bin", "python")
+_venv_python = os.path.join(REPO_ROOT, "venv", "bin", "python")
+VENV_PYTHON = _venv_python if os.path.exists(_venv_python) else sys.executable
 SCANNER     = os.path.join(SCRIPT_DIR, "scanner.py")
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,12 @@ def _run_scan(job_id: str, hook_text: str, parent_scan_id=None, mechanic=None):
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
+            if "Cannot access gated repo" in stderr or "gated repo" in stderr:
+                raise RuntimeError(
+                    "HuggingFace gated model access missing. "
+                    "Approve access for facebook/tribev2 and meta-llama/Llama-3.2-3B, "
+                    "then re-login with HF_TOKEN and retry."
+                )
             raise RuntimeError(stderr[-3000:] if stderr else "Scanner exited non-zero")
 
         with open(tmp) as f:
@@ -110,16 +117,11 @@ def api_scan_status(job_id):
 
 @app.route("/api/rewrites", methods=["POST"])
 def api_rewrites():
-    import anthropic
-
     body       = request.json or {}
     hook_text  = body.get("hook", "")
     brain_data = body.get("brain_data", {})
     scan_id    = body.get("scan_id")
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+    provider   = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
 
     prompt = f"""You are rewriting a short-form video hook. Your only job is to match a specific creator voice — spoken, immediate, never written.
 
@@ -200,14 +202,43 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
   {{"mechanic": "dropoff_prevention", "hook": "...", "why": "..."}}
 ]"""
 
-    client = anthropic.Anthropic(api_key=api_key)
-    msg    = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        if provider == "gemini":
+            from google import genai
 
-    text = msg.content[0].text.strip()
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+            if not api_key:
+                return jsonify({"error": "GEMINI_API_KEY not set"}), 500
+
+            model_name = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+            client = genai.Client(api_key=api_key)
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            text = (resp.text or "").strip()
+        else:
+            import anthropic
+
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+
+            model_name = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6")
+            client = anthropic.Anthropic(api_key=api_key)
+            msg = client.messages.create(
+                model=model_name,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = msg.content[0].text.strip()
+    except Exception as exc:
+        return jsonify({
+            "error": "Rewrite provider request failed",
+            "provider": provider,
+            "detail": str(exc)[:500],
+        }), 500
+
     # Strip accidental markdown fences
     if "```" in text:
         parts = text.split("```")
@@ -216,7 +247,15 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
             text = text[4:]
     text = text.strip()
 
-    rewrite_list = json.loads(text)
+    try:
+        rewrite_list = json.loads(text)
+    except json.JSONDecodeError:
+        return jsonify({
+            "error": "LLM did not return valid JSON array",
+            "provider": provider,
+            "preview": text[:500],
+        }), 500
+
     return jsonify({"rewrites": rewrite_list})
 
 
@@ -257,4 +296,6 @@ def api_history_detail(scan_id):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     init_db()
-    app.run(host="127.0.0.1", port=5050, debug=False, use_reloader=False)
+    host = os.environ.get("HOOKBRAIN_HOST", "0.0.0.0")
+    port = int(os.environ.get("HOOKBRAIN_PORT", "5050"))
+    app.run(host=host, port=port, debug=False, use_reloader=False)

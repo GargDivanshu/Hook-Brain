@@ -22,7 +22,7 @@ COPY tribev2 /app/tribev2
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install -e . && \
-    pip install whisperx flask anthropic google-generativeai && \
+    pip install whisperx flask anthropic google-genai && \
     pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
 
 # CPU-forcing patches required by this repo's workflow.

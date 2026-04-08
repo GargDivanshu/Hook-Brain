@@ -260,8 +260,9 @@ Why you may still see large dependency logs:
 
 - Rewrites endpoint supports provider fallback via `LLM_PROVIDER`:
   - `anthropic` (default): set `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`)
-  - `gemini`: set `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`)
+  - `gemini`: set `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`, default `gemini-2.5-flash`)
 - If provider output is not valid JSON, API returns a clear error payload.
+- Gemini integration uses the `google-genai` SDK (not deprecated `google-generativeai`).
 
 ---
 

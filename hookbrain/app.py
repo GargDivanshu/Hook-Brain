@@ -202,33 +202,42 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
   {{"mechanic": "dropoff_prevention", "hook": "...", "why": "..."}}
 ]"""
 
-    if provider == "gemini":
-        import google.generativeai as genai
+    try:
+        if provider == "gemini":
+            from google import genai
 
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not api_key:
-            return jsonify({"error": "GEMINI_API_KEY not set"}), 500
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+            if not api_key:
+                return jsonify({"error": "GEMINI_API_KEY not set"}), 500
 
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
-        resp = model.generate_content(prompt)
-        text = (resp.text or "").strip()
-    else:
-        import anthropic
+            model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            client = genai.Client(api_key=api_key)
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            text = (resp.text or "").strip()
+        else:
+            import anthropic
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
-        model_name = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6")
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model=model_name,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
+            model_name = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6")
+            client = anthropic.Anthropic(api_key=api_key)
+            msg = client.messages.create(
+                model=model_name,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = msg.content[0].text.strip()
+    except Exception as exc:
+        return jsonify({
+            "error": "Rewrite provider request failed",
+            "provider": provider,
+            "detail": str(exc)[:500],
+        }), 500
 
     # Strip accidental markdown fences
     if "```" in text:

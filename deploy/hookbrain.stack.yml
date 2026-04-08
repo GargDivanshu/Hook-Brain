@@ -19,6 +19,8 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-1.5-pro}"
       HF_TOKEN: "${HF_TOKEN}"
+      HOOKBRAIN_HOST: "0.0.0.0"
+      HOOKBRAIN_PORT: "5050"
 
     volumes:
       - /mnt/my-data-pool/collab-services/hookbrain/cache:/app/cache

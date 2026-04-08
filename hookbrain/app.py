@@ -280,4 +280,6 @@ def api_history_detail(scan_id):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     init_db()
-    app.run(host="127.0.0.1", port=5050, debug=False, use_reloader=False)
+    host = os.environ.get("HOOKBRAIN_HOST", "0.0.0.0")
+    port = int(os.environ.get("HOOKBRAIN_PORT", "5050"))
+    app.run(host=host, port=port, debug=False, use_reloader=False)

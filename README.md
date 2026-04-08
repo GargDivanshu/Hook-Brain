@@ -188,6 +188,7 @@ Notes:
   - retention tag: `<branch>-<shortsha>`
 - It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
 - First run can be slow due to model download; volumes keep cache/db across restarts.
+- If logs show `Running on http://127.0.0.1:5050` inside container, set `HOOKBRAIN_HOST=0.0.0.0` in stack env (already included in sample stack).
 
 ### Portainer registry form: what to fill
 
@@ -213,6 +214,18 @@ For this repo, these are **runtime env vars** (set in Portainer stack / containe
 - `HOOKBRAIN_TAG` (stack tag selector)
 
 They are **not** Docker build args in the provided `Dockerfile`.
+
+### GitHub Actions secrets required
+
+For `.github/workflows/deploy.yml`, add these repository secrets:
+
+- `DOCKERHUB_USERNAME` → your Docker Hub username (example: `gargdivanshu`)
+- `DOCKERHUB_TOKEN` → Docker Hub access token with push permissions
+
+Optional but recommended:
+- `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` should be scoped to a dedicated machine token/user for CI.
+
+No Anthropic/Gemini/HF runtime keys are required for the image build-and-push workflow itself.
 
 ### API provider support
 

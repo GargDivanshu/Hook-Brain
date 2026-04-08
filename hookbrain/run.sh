@@ -10,6 +10,7 @@ source venv/bin/activate
 # Install web deps into the venv if not already present
 python -c "import flask" 2>/dev/null    || pip install flask --quiet
 python -c "import anthropic" 2>/dev/null || pip install anthropic --quiet
+python -c "import google.generativeai" 2>/dev/null || pip install google-generativeai --quiet
 
 echo "Starting HookBrain on http://127.0.0.1:5050"
 python hookbrain/app.py

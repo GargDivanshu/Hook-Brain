@@ -175,12 +175,26 @@ Then open: http://127.0.0.1:5050
 Use `deploy/hookbrain.stack.yml` as a **separate stack** from your existing services and set environment variables in Portainer:
 
 - `ANTHROPIC_API_KEY`
+- `LLM_PROVIDER` (`anthropic` or `gemini`)
+- `GEMINI_API_KEY` (required only if using `LLM_PROVIDER=gemini`)
 - `HF_TOKEN` (HuggingFace token with read access to gated models)
+- `HOOKBRAIN_TAG` (optional; defaults to `main`, set to branch name like `divanshu`)
 
 Notes:
 - This stack is CPU-only.
+- This stack deploys from Docker Hub image `gargdivanshu/hookbrain:${HOOKBRAIN_TAG}`.
+- The GitHub Actions workflow publishes tags on every push:
+  - pointer tag: `<branch>`
+  - retention tag: `<branch>-<shortsha>`
 - It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
 - First run can be slow due to model download; volumes keep cache/db across restarts.
+
+### API provider support
+
+- Rewrites endpoint supports provider fallback via `LLM_PROVIDER`:
+  - `anthropic` (default): set `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`)
+  - `gemini`: set `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`)
+- If provider output is not valid JSON, API returns a clear error payload.
 
 ---
 

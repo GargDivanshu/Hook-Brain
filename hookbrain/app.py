@@ -210,7 +210,7 @@ Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
             if not api_key:
                 return jsonify({"error": "GEMINI_API_KEY not set"}), 500
 
-            model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            model_name = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
             client = genai.Client(api_key=api_key)
             resp = client.models.generate_content(
                 model=model_name,

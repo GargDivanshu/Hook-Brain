@@ -17,7 +17,7 @@ services:
       ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-opus-4-6}"
       LLM_PROVIDER: "${LLM_PROVIDER:-anthropic}" # anthropic|gemini
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
-      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3-flash-preview}"
       HF_TOKEN: "${HF_TOKEN}"
       HOOKBRAIN_HOST: "0.0.0.0"
       HOOKBRAIN_PORT: "5050"

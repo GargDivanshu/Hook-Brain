@@ -32,13 +32,18 @@ jobs:
           echo "pointer_tag=${POINTER_TAG}" >> "$GITHUB_OUTPUT"
           echo "retention_tag=${RETENTION_TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and Push Docker Image to Docker Hub
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -t "${{ steps.tags.outputs.pointer_tag }}" \
-            -t "${{ steps.tags.outputs.retention_tag }}" \
-            .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          docker push "${{ steps.tags.outputs.pointer_tag }}"
-          docker push "${{ steps.tags.outputs.retention_tag }}"
+      - name: Build and Push Docker Image to Docker Hub (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.pointer_tag }}
+            ${{ steps.tags.outputs.retention_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

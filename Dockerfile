@@ -15,9 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml LICENSE README.md /app/
 COPY tribev2 /app/tribev2
-COPY hookbrain /app/hookbrain
-COPY test_hook.py /app/test_hook.py
-COPY run_hooks.sh /app/run_hooks.sh
 
 # Install project + runtime deps.
 RUN pip install --upgrade pip && \
@@ -48,6 +45,12 @@ rewrite(audio_py, '_model.to(self.device)', '_model.to("cpu")')
 rewrite(audio_py, 'features.to(self.device)', 'features.to("cpu")')
 rewrite(events_py, 'compute_type = "float16"', 'compute_type = "int8"')
 PY
+
+# Copy frequently-changing app files after heavy dependency layers
+# so small app edits don't force full dependency reinstall.
+COPY hookbrain /app/hookbrain
+COPY test_hook.py /app/test_hook.py
+COPY run_hooks.sh /app/run_hooks.sh
 
 EXPOSE 5050
 

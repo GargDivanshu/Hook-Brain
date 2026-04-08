@@ -227,6 +227,12 @@ Optional but recommended:
 
 No Anthropic/Gemini/HF runtime keys are required for the image build-and-push workflow itself.
 
+### Docker build cache behavior
+
+- CI uses `docker/build-push-action` with GitHub Actions layer cache (`cache-from/to: type=gha`).
+- Dockerfile is ordered so heavy dependency layers build before frequently-changing app files.
+- Result: editing app code typically reuses dependency layers instead of reinstalling everything.
+
 ### API provider support
 
 - Rewrites endpoint supports provider fallback via `LLM_PROVIDER`:

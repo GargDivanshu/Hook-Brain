@@ -189,6 +189,31 @@ Notes:
 - It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
 - First run can be slow due to model download; volumes keep cache/db across restarts.
 
+### Portainer registry form: what to fill
+
+If Portainer asks for DockerHub account details:
+
+- **Name**: any friendly label, e.g. `dockerhub-gargdivanshu`
+- **DockerHub username**: your Docker Hub username, e.g. `gargdivanshu`
+- **Password / token**: use a Docker Hub **Access Token** (recommended), not your account password
+
+After saving registry credentials, your stack image can be:
+`gargdivanshu/hookbrain:<branch>`
+
+### Env timing: runtime vs build-time
+
+For this repo, these are **runtime env vars** (set in Portainer stack / container env):
+
+- `HF_TOKEN`
+- `LLM_PROVIDER`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL`
+- `HOOKBRAIN_TAG` (stack tag selector)
+
+They are **not** Docker build args in the provided `Dockerfile`.
+
 ### API provider support
 
 - Rewrites endpoint supports provider fallback via `LLM_PROVIDER`:

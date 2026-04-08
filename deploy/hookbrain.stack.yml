@@ -23,8 +23,8 @@ services:
       HOOKBRAIN_PORT: "5050"
 
     volumes:
-      - /mnt/my-data-pool/collab-services/hookbrain/cache:/app/cache
-      - /mnt/my-data-pool/collab-services/hookbrain/data:/app/hookbrain/data
+      - hookbrain_cache:/app/cache
+      - hookbrain_data:/app/hookbrain/data
 
     command: >
       sh -c "python -c \"from huggingface_hub import login; import os; t=os.getenv('HF_TOKEN',''); login(token=t) if t else None\" &&
@@ -40,3 +40,7 @@ networks:
   collab-services-network:
     external: true
     name: collab-services-network
+
+volumes:
+  hookbrain_cache:
+  hookbrain_data:

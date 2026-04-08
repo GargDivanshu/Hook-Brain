@@ -186,9 +186,12 @@ Notes:
 - The GitHub Actions workflow publishes tags on every push:
   - pointer tag: `<branch>`
   - retention tag: `<branch>-<shortsha>`
+- Cleanup job keeps only the latest 5 `<branch>-<shortsha>` retention tags per branch.
 - It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
 - First run can be slow due to model download; volumes keep cache/db across restarts.
 - If logs show `Running on http://127.0.0.1:5050` inside container, set `HOOKBRAIN_HOST=0.0.0.0` in stack env (already included in sample stack).
+- Stack uses Docker named volumes (`hookbrain_cache`, `hookbrain_data`), not NAS bind mounts.
+- If you remove the stack **and** remove volumes, this data is deleted.
 
 ### Portainer registry form: what to fill
 
@@ -230,8 +233,13 @@ No Anthropic/Gemini/HF runtime keys are required for the image build-and-push wo
 ### Docker build cache behavior
 
 - CI uses `docker/build-push-action` with GitHub Actions layer cache (`cache-from/to: type=gha`).
+- CI also pushes/pulls BuildKit cache to Docker Hub (`gargdivanshu/hookbrain:buildcache`) for better reuse across runs.
 - Dockerfile is ordered so heavy dependency layers build before frequently-changing app files.
 - Result: editing app code typically reuses dependency layers instead of reinstalling everything.
+
+Why you may still see large dependency logs:
+- `whisperx` pulls torch 2.8.x deps, then this project pins torch back to 2.6.0 for TRIBE compatibility.
+- So within one dependency layer, pip can install/replace large packages; this is expected with current version constraints.
 
 ### API provider support
 

@@ -1,0 +1,112 @@
+name: Deploy HookBrain Docker Image
+
+on:
+  push:
+
+jobs:
+  deploy:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set tags
+        id: tags
+        run: |
+          IMAGE_NAME="gargdivanshu/hookbrain"
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+
+          POINTER_TAG="${IMAGE_NAME}:${BRANCH_NAME}"
+          RETENTION_TAG="${IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}"
+
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "pointer_tag=${POINTER_TAG}" >> "$GITHUB_OUTPUT"
+          echo "retention_tag=${RETENTION_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image to Docker Hub (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.pointer_tag }}
+            ${{ steps.tags.outputs.retention_tag }}
+          cache-from: |
+            type=gha
+            type=registry,ref=gargdivanshu/hookbrain:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=gargdivanshu/hookbrain:buildcache,mode=max
+
+  cleanup:
+    name: Cleanup old Docker Hub branch images
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: needs.deploy.result == 'success'
+
+    steps:
+      - name: Keep last 5 retention tags for current branch
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO: gargdivanshu/hookbrain
+          BRANCH: ${{ github.ref_name }}
+          KEEP_LAST: 5
+        run: |
+          set -euo pipefail
+
+          LOGIN_RESPONSE=$(curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"$DOCKERHUB_USERNAME\",\"password\":\"$DOCKERHUB_TOKEN\"}" \
+            "https://hub.docker.com/v2/users/login/")
+
+          TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.token // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "Docker Hub auth failed"
+            echo "$LOGIN_RESPONSE"
+            exit 1
+          fi
+
+          URL="https://hub.docker.com/v2/repositories/${REPO}/tags/?page_size=100"
+          TAGS_JSON="[]"
+          while [ -n "$URL" ]; do
+            RESPONSE=$(curl -sS -H "Authorization: Bearer $TOKEN" "$URL")
+            TAGS_JSON=$(jq -s '.[0] + .[1]' \
+              <(echo "$TAGS_JSON") \
+              <(echo "$RESPONSE" | jq '.results'))
+            URL=$(echo "$RESPONSE" | jq -r '.next // empty')
+          done
+
+          TAGS=$(echo "$TAGS_JSON" | jq -r --arg BRANCH "$BRANCH" '
+            map(select(.name | startswith($BRANCH + "-")))
+            | sort_by(.last_updated)
+            | .[].name')
+
+          COUNT=$(echo "$TAGS" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$COUNT" -le "$KEEP_LAST" ]; then
+            echo "Nothing to cleanup for $BRANCH (count=$COUNT)"
+            exit 0
+          fi
+
+          DELETE_COUNT=$((COUNT - KEEP_LAST))
+          echo "$TAGS" | head -n "$DELETE_COUNT" | while read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "Deleting ${TAG}"
+            curl -sS -X DELETE \
+              -H "Authorization: Bearer $TOKEN" \
+              "https://hub.docker.com/v2/repositories/${REPO}/tags/${TAG}/" >/dev/null
+          done

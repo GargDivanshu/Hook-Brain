@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  hookbrain:
+    # Pull from Docker Hub registry image.
+    # CI publishes: gargdivanshu/hookbrain:<branch> and <branch>-<shortsha>
+    image: "gargdivanshu/hookbrain:${HOOKBRAIN_TAG:-main}"
+    container_name: hookbrain-stack
+
+    # Use 5051 to avoid conflict with your existing pgadmin:5050 mapping.
+    ports:
+      - "5051:5050"
+
+    environment:
+      # Stack pulls/runs this Docker image, not Git repo source directly.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-opus-4-6}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-anthropic}" # anthropic|gemini
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-1.5-pro}"
+      HF_TOKEN: "${HF_TOKEN}"
+      HOOKBRAIN_HOST: "0.0.0.0"
+      HOOKBRAIN_PORT: "5050"
+
+    volumes:
+      - /mnt/my-data-pool/collab-services/hookbrain/cache:/app/cache
+      - /mnt/my-data-pool/collab-services/hookbrain/data:/app/hookbrain/data
+
+    command: >
+      sh -c "python -c \"from huggingface_hub import login; import os; t=os.getenv('HF_TOKEN',''); login(token=t) if t else None\" &&
+             python hookbrain/app.py"
+
+    restart: unless-stopped
+
+    # Join your existing network so this stays separate but compatible.
+    networks:
+      - collab-services-network
+
+networks:
+  collab-services-network:
+    external: true
+    name: collab-services-network

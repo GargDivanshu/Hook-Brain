@@ -189,13 +189,13 @@ Brain rubric:
 
 ══ TASK ═════════════════════════════════════════════════════════
 
-Write 5 rewrites for the same topic: Cluely — an app with 1 billion views, raised $20M, then shut down.
+Write 5 rewrites for the same topic as the original hook: "{hook_text}". Do not switch topics, brands, people, or facts.
 
-Each rewrite targets a different viral mechanic. Each must sound exactly like the voice examples above — spoken, not written, compressed, immediate.
+Each rewrite targets a different viral mechanic. Each must sound exactly like the voice examples above — spoken, not written, compressed, immediate. Keep each "why" short and concrete. Do not use neuroscience jargon or mention brain regions.
 
 Return ONLY a valid JSON array, no markdown fences, no text outside the JSON:
 [
-  {{"mechanic": "watch_signal",       "hook": "...", "why": "one sentence — which brain signal this targets and why the language achieves it"}},
+  {{"mechanic": "watch_signal",       "hook": "...", "why": "one short sentence on what this rewrite emphasizes"}},
   {{"mechanic": "self_relevance",     "hook": "...", "why": "..."}},
   {{"mechanic": "emotional_salience", "hook": "...", "why": "..."}},
   {{"mechanic": "share_signal",       "hook": "...", "why": "..."}},
@@ -299,3 +299,6 @@ if __name__ == "__main__":
     host = os.environ.get("HOOKBRAIN_HOST", "0.0.0.0")
     port = int(os.environ.get("HOOKBRAIN_PORT", "5050"))
     app.run(host=host, port=port, debug=False, use_reloader=False)
+
+
+

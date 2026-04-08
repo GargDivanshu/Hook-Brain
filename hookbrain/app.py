@@ -49,6 +49,12 @@ def _run_scan(job_id: str, hook_text: str, parent_scan_id=None, mechanic=None):
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
+            if "Cannot access gated repo" in stderr or "gated repo" in stderr:
+                raise RuntimeError(
+                    "HuggingFace gated model access missing. "
+                    "Approve access for facebook/tribev2 and meta-llama/Llama-3.2-3B, "
+                    "then re-login with HF_TOKEN and retry."
+                )
             raise RuntimeError(stderr[-3000:] if stderr else "Scanner exited non-zero")
 
         with open(tmp) as f:

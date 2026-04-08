@@ -28,6 +28,10 @@ HuggingFace gated models — request access before starting:
 
 Approval for both is usually granted within a few minutes.
 
+About alternatives like `unsloth/Llama-3.2-3B`:
+- Access can be checked, but TRIBE v2 release is configured for `meta-llama/Llama-3.2-3B`.
+- Swapping to a different repo/model is not guaranteed to be drop-in compatible with release weights.
+
 ---
 
 ## First-run model downloads (~9GB total)
@@ -116,6 +120,16 @@ python -c "from huggingface_hub import login; login(token='YOUR_HF_TOKEN')"
 ```
 
 Use a token with read scope from https://huggingface.co/settings/tokens. Your account must already have approved access to both gated models.
+
+Optional: verify access quickly:
+```bash
+export HF_TOKEN="your-hf-token"
+python hookbrain/check_hf_access.py
+```
+
+Security note:
+- Do not paste tokens into chats/issues/PR comments.
+- Prefer setting `HF_TOKEN` as an environment variable or secret in your deployment platform.
 
 ### 11. Apply CPU patches (all 6 required)
 
@@ -367,6 +381,12 @@ One of the text.py or audio.py patches did not apply. Re-run all 5 sed commands 
 
 **Model loading went wrong**
 The cache config still has device: cuda. Run the cache patch from step 12.
+
+**Cannot access gated repo / 403 for meta-llama/Llama-3.2-3B**
+Your HuggingFace account is not approved yet (or token session is stale).
+1. Wait for model access approval.
+2. Re-login with your HuggingFace token in the running environment/container.
+3. Retry the scan.
 
 **mktemp: mkstemp failed on /tmp/tribe_hook_XXXXXX.py: File exists**
 A crashed run left a temp file behind:

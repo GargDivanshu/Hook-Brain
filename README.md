@@ -201,6 +201,7 @@ Notes:
   - pointer tag: `<branch>`
   - retention tag: `<branch>-<shortsha>`
 - Cleanup job keeps only the latest 5 `<branch>-<shortsha>` retention tags per branch.
+- You can still see more than 5 total tags because pointer tags (`main`, `divanshu`, etc.) and `buildcache` are not part of retention cleanup.
 - It publishes on host port `5051` (container `5050`) to avoid common `5050` conflicts.
 - First run can be slow due to model download; volumes keep cache/db across restarts.
 - If logs show `Running on http://127.0.0.1:5050` inside container, set `HOOKBRAIN_HOST=0.0.0.0` in stack env (already included in sample stack).

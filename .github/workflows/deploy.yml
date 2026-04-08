@@ -106,7 +106,12 @@ jobs:
           echo "$TAGS" | head -n "$DELETE_COUNT" | while read -r TAG; do
             [ -z "$TAG" ] && continue
             echo "Deleting ${TAG}"
-            curl -sS -X DELETE \
+            STATUS=$(curl -sS -o /tmp/delete_out.txt -w "%{http_code}" -X DELETE \
               -H "Authorization: Bearer $TOKEN" \
-              "https://hub.docker.com/v2/repositories/${REPO}/tags/${TAG}/" >/dev/null
+              "https://hub.docker.com/v2/repositories/${REPO}/tags/${TAG}/")
+            if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+              echo "Failed to delete tag ${TAG} (status=${STATUS})"
+              cat /tmp/delete_out.txt
+              exit 1
+            fi
           done

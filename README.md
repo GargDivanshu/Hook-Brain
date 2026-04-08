@@ -192,6 +192,7 @@ Notes:
 - If logs show `Running on http://127.0.0.1:5050` inside container, set `HOOKBRAIN_HOST=0.0.0.0` in stack env (already included in sample stack).
 - Stack uses Docker named volumes (`hookbrain_cache`, `hookbrain_data`), not NAS bind mounts.
 - If you remove the stack **and** remove volumes, this data is deleted.
+- Container runtime uses system Python executable automatically when `/app/venv/bin/python` is not present.
 
 ### Portainer registry form: what to fill
 

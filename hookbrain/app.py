@@ -16,7 +16,8 @@ from db import get_history, get_scan, init_db, save_scan
 # ---------------------------------------------------------------------------
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT   = os.path.dirname(SCRIPT_DIR)
-VENV_PYTHON = os.path.join(REPO_ROOT, "venv", "bin", "python")
+_venv_python = os.path.join(REPO_ROOT, "venv", "bin", "python")
+VENV_PYTHON = _venv_python if os.path.exists(_venv_python) else sys.executable
 SCANNER     = os.path.join(SCRIPT_DIR, "scanner.py")
 
 # ---------------------------------------------------------------------------

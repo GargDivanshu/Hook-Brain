@@ -11,7 +11,15 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template, request
 
 from cache_store import cache_rewrites, cache_scan, get_cached_scan
-from db import get_history, get_scan, init_db, save_scan
+from db import (
+    attach_rewrite_scan,
+    get_history,
+    get_rewrites_for_scan,
+    get_scan,
+    init_db,
+    save_rewrites,
+    save_scan,
+)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -226,7 +234,13 @@ Return only a valid JSON array, no markdown fences, no extra text:
 # ---------------------------------------------------------------------------
 # Background scan worker
 # ---------------------------------------------------------------------------
-def _run_scan(job_id: str, hook_text: str, parent_scan_id=None, mechanic=None):
+def _run_scan(
+    job_id: str,
+    hook_text: str,
+    parent_scan_id=None,
+    mechanic=None,
+    rewrite_id=None,
+):
     tmp = tempfile.mktemp(suffix=".json")
     try:
         with _lock:
@@ -260,6 +274,8 @@ def _run_scan(job_id: str, hook_text: str, parent_scan_id=None, mechanic=None):
             mechanic=mechanic,
         )
         cache_scan(scan_record)
+        if rewrite_id:
+            attach_rewrite_scan(rewrite_id, scan_record["id"])
 
         with _lock:
             _jobs[job_id]["status"] = "done"
@@ -274,13 +290,13 @@ def _run_scan(job_id: str, hook_text: str, parent_scan_id=None, mechanic=None):
             os.unlink(tmp)
 
 
-def _start_job(hook_text: str, parent_scan_id=None, mechanic=None) -> str:
+def _start_job(hook_text: str, parent_scan_id=None, mechanic=None, rewrite_id=None) -> str:
     job_id = str(uuid.uuid4())
     with _lock:
         _jobs[job_id] = {"status": "queued", "result": None, "error": None}
     threading.Thread(
         target=_run_scan,
-        args=(job_id, hook_text, parent_scan_id, mechanic),
+        args=(job_id, hook_text, parent_scan_id, mechanic, rewrite_id),
         daemon=True,
     ).start()
     return job_id
@@ -376,13 +392,15 @@ def api_rewrites():
         }), 500
 
     if scan_id:
+        stored_rewrites = save_rewrites(scan_id, rewrite_list, provider=provider)
         cache_rewrites(scan_id, {
             "scan_id": scan_id,
             "source_hook": hook_text,
-            "rewrites": rewrite_list,
+            "rewrites": stored_rewrites,
             "provider": provider,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         })
+        rewrite_list = stored_rewrites
 
     return jsonify({"rewrites": rewrite_list})
 
@@ -399,9 +417,11 @@ def api_scan_rewrites():
             r["hook"],
             parent_scan_id=parent_id,
             mechanic=r.get("mechanic"),
+            rewrite_id=r.get("id"),
         )
         jobs_out.append({
             "job_id": job_id,
+            "rewrite_id": r.get("id"),
             "mechanic": r.get("mechanic", ""),
             "hook": r["hook"],
         })
@@ -418,6 +438,7 @@ def api_history_detail(scan_id):
     scan = get_cached_scan(scan_id) or get_scan(scan_id)
     if not scan:
         return jsonify({"error": "Not found"}), 404
+    scan["rewrites"] = get_rewrites_for_scan(scan_id)
     return jsonify(scan)
 
 

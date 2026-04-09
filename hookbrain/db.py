@@ -27,6 +27,17 @@ def init_db():
                 parent_scan_id INTEGER,
                 created_at     TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS rewrites (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_scan_id INTEGER NOT NULL,
+                mechanic       TEXT    NOT NULL,
+                hook_text      TEXT    NOT NULL,
+                why_text       TEXT,
+                provider       TEXT,
+                child_scan_id  INTEGER,
+                created_at     TEXT    NOT NULL
+            );
         """)
 
 
@@ -80,3 +91,77 @@ def get_scan(scan_id):
     except Exception:
         pass
     return data
+
+
+def save_rewrites(source_scan_id, rewrites, provider=None):
+    created_at = datetime.now(timezone.utc).isoformat()
+    out = []
+    with _conn() as c:
+        for rewrite in rewrites:
+            cur = c.execute(
+                """INSERT INTO rewrites
+                   (source_scan_id, mechanic, hook_text, why_text, provider, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    source_scan_id,
+                    rewrite.get("mechanic"),
+                    rewrite.get("hook"),
+                    rewrite.get("why"),
+                    provider,
+                    created_at,
+                ),
+            )
+            out.append({
+                "id": cur.lastrowid,
+                "source_scan_id": source_scan_id,
+                "mechanic": rewrite.get("mechanic"),
+                "hook": rewrite.get("hook"),
+                "why": rewrite.get("why"),
+                "provider": provider,
+                "child_scan_id": None,
+                "created_at": created_at,
+            })
+    return out
+
+
+def attach_rewrite_scan(rewrite_id, child_scan_id):
+    with _conn() as c:
+        c.execute(
+            "UPDATE rewrites SET child_scan_id = ? WHERE id = ?",
+            (child_scan_id, rewrite_id),
+        )
+
+
+def get_rewrites_for_scan(source_scan_id):
+    with _conn() as c:
+        rows = c.execute(
+            """
+            SELECT
+                r.id,
+                r.source_scan_id,
+                r.mechanic,
+                r.hook_text,
+                r.why_text,
+                r.provider,
+                r.child_scan_id,
+                r.created_at,
+                s.viral_score AS result_viral_score,
+                s.brain_data  AS result_brain_data
+            FROM rewrites r
+            LEFT JOIN scans s ON s.id = r.child_scan_id
+            WHERE r.source_scan_id = ?
+            ORDER BY r.id ASC
+            """,
+            (source_scan_id,),
+        ).fetchall()
+
+    out = []
+    for row in rows:
+        item = dict(row)
+        if item.get("result_brain_data"):
+            try:
+                item["result_brain_data"] = json.loads(item["result_brain_data"])
+            except Exception:
+                pass
+        out.append(item)
+    return out

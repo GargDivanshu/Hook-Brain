@@ -727,8 +727,13 @@ function renderRewrites(rewrites) {
   document.getElementById('rewrites-list').innerHTML = rewrites.map((r, i) => `
     <div class="rewrite-card">
       <div class="mechanic-badge">${MECH_LABELS[r.mechanic] || r.mechanic}</div>
-      <div class="rewrite-text">${escHtml(r.hook)}</div>
-      <div class="rewrite-why">${escHtml(r.why)}</div>
+      <div class="rewrite-text">${escHtml(r.hook || r.hook_text)}</div>
+      <div class="rewrite-why">${escHtml(r.why || r.why_text || '')}</div>
+      ${(r.result_brain_data && r.result_brain_data.viral) || r.result
+        ? `<div class="rewrite-why" style="margin-top:6px;color:var(--accent-lt)">
+             Score: ${(((r.result && r.result.viral) || (r.result_brain_data && r.result_brain_data.viral)).viral_score).toFixed(3)}
+           </div>`
+        : ''}
     </div>
   `).join('');
 }
@@ -843,6 +848,24 @@ function renderComparisonTable(jobs) {
   show('comparison-table-wrap');
 }
 
+function renderStoredComparison(rewrites) {
+  const jobs = rewrites
+    .filter(r => r.result_brain_data && r.result_brain_data.viral)
+    .map(r => ({
+      hook: r.hook || r.hook_text,
+      mechanic: r.mechanic,
+      result: r.result_brain_data,
+    }));
+
+  if (!jobs.length) {
+    hide('comparison-table-wrap');
+    return;
+  }
+
+  show('comparison-section');
+  renderComparisonTable(jobs);
+}
+
 // ─────────────────────────────────────────────────────────────────
 // History
 // ─────────────────────────────────────────────────────────────────
@@ -874,6 +897,18 @@ async function loadHistoryScan(scanId) {
     resetResults();
     currentResult = { ...data.brain_data, scan_id: data.id };
     renderResults(currentResult);
+    if (data.rewrites && data.rewrites.length) {
+      rewriteList = data.rewrites.map(r => ({
+        id: r.id,
+        mechanic: r.mechanic,
+        hook: r.hook_text,
+        why: r.why_text,
+        result_brain_data: r.result_brain_data,
+      }));
+      renderRewrites(rewriteList);
+      show('rewrites-section');
+      renderStoredComparison(rewriteList);
+    }
   } catch(e) {
     showError('Failed to load scan: ' + e.message);
   }

@@ -1,12 +1,14 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
@@ -29,11 +31,18 @@ REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 _venv_python = os.path.join(REPO_ROOT, "venv", "bin", "python")
 VENV_PYTHON = _venv_python if os.path.exists(_venv_python) else sys.executable
 SCANNER = os.path.join(SCRIPT_DIR, "scanner.py")
+UPLOAD_ROOT = Path(
+    os.environ.get("HOOKBRAIN_UPLOAD_DIR", os.path.join(REPO_ROOT, "upload_cache"))
+).resolve()
+UPLOAD_TMP_DIR = UPLOAD_ROOT / ".chunks"
+ALLOWED_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
+CHUNK_SIZE = 8 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = CHUNK_SIZE + 1024 * 1024
 
 # In-memory job store  { job_id: {status, result, error} }
 _jobs: dict = {}
@@ -71,6 +80,26 @@ def _dedupe_keep_order(items):
         seen.add(key)
         out.append(item)
     return out
+
+
+def ensure_upload_dirs():
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    UPLOAD_TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def safe_filename(name):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name or "")
+    cleaned = cleaned.strip("._")
+    return cleaned or f"upload_{uuid.uuid4().hex}.mp4"
+
+
+def ensure_within_upload_root(path):
+    path = Path(path).resolve()
+    try:
+        path.relative_to(UPLOAD_ROOT)
+    except ValueError as exc:
+        raise ValueError("Path is outside configured upload root") from exc
+    return path
 
 
 def extract_concrete_anchors(hook_text: str):
@@ -236,10 +265,12 @@ Return only a valid JSON array, no markdown fences, no extra text:
 # ---------------------------------------------------------------------------
 def _run_scan(
     job_id: str,
-    hook_text: str,
+    scan_label: str,
     parent_scan_id=None,
     mechanic=None,
     rewrite_id=None,
+    input_mode="text",
+    input_value=None,
 ):
     tmp = tempfile.mktemp(suffix=".json")
     try:
@@ -247,7 +278,16 @@ def _run_scan(
             _jobs[job_id]["status"] = "running"
 
         proc = subprocess.run(
-            [VENV_PYTHON, SCANNER, hook_text, tmp],
+            [
+                VENV_PYTHON,
+                SCANNER,
+                "--mode",
+                input_mode,
+                "--input",
+                input_value if input_value is not None else scan_label,
+                "--output",
+                tmp,
+            ],
             capture_output=True,
             text=True,
             cwd=REPO_ROOT,
@@ -267,8 +307,15 @@ def _run_scan(
         with open(tmp) as f:
             data = json.load(f)
 
+        if input_mode == "video":
+            data.setdefault("metadata", {})
+            data["metadata"]["input_mode"] = "video"
+            data["metadata"]["source_path"] = input_value
+            data["metadata"]["source_name"] = os.path.basename(input_value)
+            data["hook"] = scan_label
+
         scan_record = save_scan(
-            hook_text,
+            scan_label,
             data,
             parent_scan_id=parent_scan_id,
             mechanic=mechanic,
@@ -290,13 +337,28 @@ def _run_scan(
             os.unlink(tmp)
 
 
-def _start_job(hook_text: str, parent_scan_id=None, mechanic=None, rewrite_id=None) -> str:
+def _start_job(
+    scan_label: str,
+    parent_scan_id=None,
+    mechanic=None,
+    rewrite_id=None,
+    input_mode="text",
+    input_value=None,
+) -> str:
     job_id = str(uuid.uuid4())
     with _lock:
         _jobs[job_id] = {"status": "queued", "result": None, "error": None}
     threading.Thread(
         target=_run_scan,
-        args=(job_id, hook_text, parent_scan_id, mechanic, rewrite_id),
+        args=(
+            job_id,
+            scan_label,
+            parent_scan_id,
+            mechanic,
+            rewrite_id,
+            input_mode,
+            input_value,
+        ),
         daemon=True,
     ).start()
     return job_id
@@ -317,6 +379,106 @@ def api_scan():
         return jsonify({"error": "No hook text"}), 400
     job_id = _start_job(hook_text)
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/upload/init", methods=["POST"])
+def api_upload_init():
+    body = request.json or {}
+    filename = safe_filename(body.get("filename", ""))
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_VIDEO_SUFFIXES:
+        return jsonify({"error": "Unsupported video format"}), 400
+
+    ensure_upload_dirs()
+    upload_id = uuid.uuid4().hex
+    staging_dir = UPLOAD_TMP_DIR / upload_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "upload_id": upload_id,
+        "filename": filename,
+        "total_size": int(body.get("size") or 0),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (staging_dir / "manifest.json").write_text(json.dumps(manifest))
+    return jsonify({
+        "upload_id": upload_id,
+        "chunk_size": CHUNK_SIZE,
+        "filename": filename,
+    })
+
+
+@app.route("/api/upload/chunk", methods=["POST"])
+def api_upload_chunk():
+    ensure_upload_dirs()
+    upload_id = (request.form.get("upload_id") or "").strip()
+    chunk_index = request.form.get("chunk_index")
+    file = request.files.get("chunk")
+
+    if not upload_id or chunk_index is None or file is None:
+        return jsonify({"error": "Missing upload chunk fields"}), 400
+
+    staging_dir = ensure_within_upload_root(UPLOAD_TMP_DIR / upload_id)
+    if not staging_dir.exists():
+        return jsonify({"error": "Upload session not found"}), 404
+
+    chunk_path = staging_dir / f"{int(chunk_index):08d}.part"
+    file.save(str(chunk_path))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/upload/complete", methods=["POST"])
+def api_upload_complete():
+    body = request.json or {}
+    upload_id = (body.get("upload_id") or "").strip()
+    total_chunks = int(body.get("total_chunks") or 0)
+    if not upload_id or total_chunks <= 0:
+        return jsonify({"error": "Invalid upload completion payload"}), 400
+
+    staging_dir = ensure_within_upload_root(UPLOAD_TMP_DIR / upload_id)
+    manifest_path = staging_dir / "manifest.json"
+    if not manifest_path.exists():
+        return jsonify({"error": "Upload session not found"}), 404
+
+    manifest = json.loads(manifest_path.read_text())
+    final_name = f"{upload_id}_{manifest['filename']}"
+    final_path = ensure_within_upload_root(UPLOAD_ROOT / final_name)
+
+    with open(final_path, "wb") as out:
+        for idx in range(total_chunks):
+            chunk_path = staging_dir / f"{idx:08d}.part"
+            if not chunk_path.exists():
+                return jsonify({"error": f"Missing chunk {idx}"}), 400
+            with open(chunk_path, "rb") as src:
+                shutil.copyfileobj(src, out)
+
+    shutil.rmtree(staging_dir, ignore_errors=True)
+    return jsonify({
+        "video_path": str(final_path),
+        "filename": manifest["filename"],
+    })
+
+
+@app.route("/api/scan_video", methods=["POST"])
+def api_scan_video():
+    video_path = (request.json or {}).get("video_path", "").strip()
+    if not video_path:
+        return jsonify({"error": "No video path"}), 400
+
+    try:
+        video_file = ensure_within_upload_root(video_path)
+    except ValueError:
+        return jsonify({"error": "Video path is outside configured upload root"}), 400
+
+    if not video_file.exists() or not video_file.is_file():
+        return jsonify({"error": "Video file not found"}), 404
+
+    label = f"[VIDEO] {video_file.name}"
+    job_id = _start_job(
+        label,
+        input_mode="video",
+        input_value=str(video_file),
+    )
+    return jsonify({"job_id": job_id, "label": label})
 
 
 @app.route("/api/scan/<job_id>")
@@ -447,6 +609,7 @@ def api_history_detail(scan_id):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     init_db()
+    ensure_upload_dirs()
     host = os.environ.get("HOOKBRAIN_HOST", "0.0.0.0")
     port = int(os.environ.get("HOOKBRAIN_PORT", "5050"))
     app.run(host=host, port=port, debug=False, use_reloader=False)

@@ -94,6 +94,17 @@
   }
   textarea:focus { border-color: var(--accent); }
   textarea::placeholder { color: var(--muted); }
+  input[type="file"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--subtext);
+    padding: 12px;
+    font-size: 13px;
+  }
+  .input-help { font-size: 12px; color: var(--subtext); margin-top: 8px; }
+  .upload-meta { font-size: 12px; color: var(--subtext); margin-top: 8px; }
 
   /* ── Buttons ────────────────────────────────────────────────── */
   .btn {
@@ -350,6 +361,21 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="card-title">Video Upload</div>
+    <input id="video-input" type="file" accept=".mp4,.mov,.mkv,.avi,.webm,video/*" />
+    <div class="input-help">Chunked upload to the configured NAS cache path, then scan the finalized video with TRIBE.</div>
+    <div class="upload-meta" id="video-upload-meta">No video uploaded.</div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="upload-video-btn" onclick="uploadSelectedVideo()">
+        Upload Video
+      </button>
+      <button class="btn btn-primary" id="scan-video-btn" onclick="startVideoScan()">
+        &#9654; Scan Video
+      </button>
+    </div>
+  </div>
+
   <!-- ── Scan status ───────────────────────────────────────── -->
   <div id="scan-status">
     <div class="spinner"></div>
@@ -483,6 +509,8 @@ let elapsedTimer   = null;
 let elapsedSec     = 0;
 let brainChart     = null;
 let rewritePollTimer = null;
+let uploadedVideo  = null;
+const VIDEO_CHUNK_SIZE_FALLBACK = 8 * 1024 * 1024;
 
 // ─────────────────────────────────────────────────────────────────
 // Scan
@@ -516,6 +544,93 @@ async function startScan() {
   }
 }
 
+async function uploadSelectedVideo() {
+  const file = document.getElementById('video-input').files[0];
+  if (!file) return;
+
+  const uploadBtn = document.getElementById('upload-video-btn');
+  const meta = document.getElementById('video-upload-meta');
+  uploadBtn.disabled = true;
+  meta.textContent = 'Preparing upload…';
+
+  try {
+    const init = await post('/api/upload/init', {
+      filename: file.name,
+      size: file.size,
+    });
+    const chunkSize = init.chunk_size || VIDEO_CHUNK_SIZE_FALLBACK;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const chunk = file.slice(i * chunkSize, Math.min(file.size, (i + 1) * chunkSize));
+      const form = new FormData();
+      form.append('upload_id', init.upload_id);
+      form.append('chunk_index', String(i));
+      form.append('chunk', chunk, file.name);
+
+      const r = await fetch('/api/upload/chunk', {
+        method: 'POST',
+        body: form,
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(err.slice(0, 200));
+      }
+      meta.textContent = `Uploading ${file.name}… ${i + 1}/${totalChunks} chunks`;
+    }
+
+    const done = await post('/api/upload/complete', {
+      upload_id: init.upload_id,
+      total_chunks: totalChunks,
+    });
+
+    uploadedVideo = {
+      name: done.filename,
+      path: done.video_path,
+      size: file.size,
+    };
+    meta.textContent = `Uploaded: ${done.filename}`;
+  } catch (e) {
+    uploadedVideo = null;
+    showError('Video upload failed: ' + e.message);
+    meta.textContent = 'No video uploaded.';
+  } finally {
+    uploadBtn.disabled = false;
+  }
+}
+
+async function startVideoScan() {
+  const file = document.getElementById('video-input').files[0];
+  if (!file) return;
+  if (!uploadedVideo || uploadedVideo.name !== file.name) {
+    await uploadSelectedVideo();
+    if (!uploadedVideo) return;
+  }
+
+  resetResults();
+  document.getElementById('scan-video-btn').disabled = true;
+  document.getElementById('video-input').disabled = true;
+  document.getElementById('scan-status').style.display = 'flex';
+  hide('error-box');
+
+  elapsedSec = 0;
+  document.getElementById('elapsed').textContent = '0s';
+  elapsedTimer = setInterval(() => {
+    elapsedSec++;
+    document.getElementById('elapsed').textContent =
+      elapsedSec >= 60 ? `${Math.floor(elapsedSec/60)}m ${elapsedSec%60}s` : `${elapsedSec}s`;
+  }, 1000);
+
+  try {
+    const res = await post('/api/scan_video', { video_path: uploadedVideo.path });
+    currentJobId = res.job_id;
+    pollTimer = setInterval(pollScan, 3000);
+  } catch (e) {
+    showError('Failed to start video scan: ' + e.message);
+    resetScanUI();
+  }
+}
+
 async function pollScan() {
   try {
     const job = await get(`/api/scan/${currentJobId}`);
@@ -540,6 +655,8 @@ async function pollScan() {
 function resetScanUI() {
   document.getElementById('scan-btn').disabled   = false;
   document.getElementById('hook-input').disabled = false;
+  document.getElementById('scan-video-btn').disabled = false;
+  document.getElementById('video-input').disabled = false;
   document.getElementById('scan-status').style.display = 'none';
 }
 
@@ -563,6 +680,10 @@ function renderResults(data) {
   document.getElementById('score-hook-label').textContent =
     '"' + (data.hook.length > 80 ? data.hook.slice(0, 80) + '…' : data.hook) + '"';
   document.getElementById('score-verdict').textContent = scoreVerdict(v.viral_score);
+  const rewritesBtn = document.getElementById('rewrites-btn');
+  const isVideoScan = data.metadata && data.metadata.input_mode === 'video';
+  rewritesBtn.disabled = !!isVideoScan;
+  rewritesBtn.textContent = isVideoScan ? '✦ Rewrites need text hook input' : '✦ Generate Rewrites';
 
   // Metric cards
   const metrics = [
@@ -693,6 +814,7 @@ function renderChart(seconds) {
 // ─────────────────────────────────────────────────────────────────
 async function generateRewrites() {
   if (!currentResult) return;
+  if (currentResult.metadata && currentResult.metadata.input_mode === 'video') return;
   const btn = document.getElementById('rewrites-btn');
   btn.disabled = true;
   btn.textContent = '⟳ Generating rewrites…';
@@ -999,6 +1121,13 @@ function scoreVerdict(score) {
 // Init
 // ─────────────────────────────────────────────────────────────────
 loadHistory();
+document.getElementById('video-input').addEventListener('change', () => {
+  uploadedVideo = null;
+  const file = document.getElementById('video-input').files[0];
+  document.getElementById('video-upload-meta').textContent = file
+    ? `Selected: ${file.name}`
+    : 'No video uploaded.';
+});
 </script>
 </body>
 </html>

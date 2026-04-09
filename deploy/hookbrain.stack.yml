@@ -38,12 +38,15 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://hookbrain-redis:6379/0}"
       HOOKBRAIN_REDIS_TTL_SECONDS: "${HOOKBRAIN_REDIS_TTL_SECONDS:-2592000}"
       HOOKBRAIN_DATA_DIR: "/app/hookbrain/data"
+      HOOKBRAIN_UPLOAD_DIR: "${HOOKBRAIN_UPLOAD_DIR:-/nas-cache/uploads}"
       HOOKBRAIN_HOST: "0.0.0.0"
       HOOKBRAIN_PORT: "5050"
 
     volumes:
       - hookbrain_cache:/app/cache
       - hookbrain_data:/app/hookbrain/data
+      # Point this bind mount at your NAS/cache location in Portainer.
+      - ${HOOKBRAIN_NAS_CACHE_PATH:-./hookbrain_nas_cache}:/nas-cache
 
     command: >
       sh -c "python -c \"from huggingface_hub import login; import os; t=os.getenv('HF_TOKEN',''); login(token=t) if t else None\" &&

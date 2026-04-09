@@ -3,10 +3,13 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hookbrain.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("HOOKBRAIN_DATA_DIR", os.path.join(BASE_DIR, "data"))
+DB_PATH = os.path.join(DATA_DIR, "hookbrain.db")
 
 
 def _conn():
+    os.makedirs(DATA_DIR, exist_ok=True)
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
     return c
@@ -28,6 +31,7 @@ def init_db():
 
 
 def save_scan(hook_text, data, parent_scan_id=None, mechanic=None):
+    created_at = datetime.now(timezone.utc).isoformat()
     with _conn() as c:
         cur = c.execute(
             """INSERT INTO scans
@@ -39,10 +43,18 @@ def save_scan(hook_text, data, parent_scan_id=None, mechanic=None):
                 data.get("viral", {}).get("viral_score"),
                 mechanic,
                 parent_scan_id,
-                datetime.now(timezone.utc).isoformat(),
+                created_at,
             ),
         )
-        return cur.lastrowid
+        return {
+            "id": cur.lastrowid,
+            "hook_text": hook_text,
+            "brain_data": data,
+            "viral_score": data.get("viral", {}).get("viral_score"),
+            "mechanic": mechanic,
+            "parent_scan_id": parent_scan_id,
+            "created_at": created_at,
+        }
 
 
 def get_history(limit=60):

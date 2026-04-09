@@ -1,6 +1,22 @@
 version: "3.9"
 
 services:
+  hookbrain-redis:
+    image: redis:7-alpine
+    container_name: hookbrain-redis-stack
+
+    # Optional host exposure for debugging without colliding with other Redis stacks.
+    ports:
+      - "127.0.0.1:6380:6379"
+
+    volumes:
+      - hookbrain_redis_data:/data
+
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    networks:
+      - collab-services-network
+
   hookbrain:
     # Pull from Docker Hub registry image.
     # CI publishes: gargdivanshu/hookbrain:<branch> and <branch>-<shortsha>
@@ -19,6 +35,9 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3-flash-preview}"
       HF_TOKEN: "${HF_TOKEN}"
+      REDIS_URL: "${REDIS_URL:-redis://hookbrain-redis:6379/0}"
+      HOOKBRAIN_REDIS_TTL_SECONDS: "${HOOKBRAIN_REDIS_TTL_SECONDS:-2592000}"
+      HOOKBRAIN_DATA_DIR: "/app/hookbrain/data"
       HOOKBRAIN_HOST: "0.0.0.0"
       HOOKBRAIN_PORT: "5050"
 
@@ -44,3 +63,4 @@ networks:
 volumes:
   hookbrain_cache:
   hookbrain_data:
+  hookbrain_redis_data:
